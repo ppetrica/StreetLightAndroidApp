@@ -5,12 +5,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import android.widget.RadioGroup
-import android.widget.SeekBar
-import android.widget.TextView
-import android.widget.Toast
+import android.widget.*
 import android.widget.Toast.LENGTH_SHORT
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.children
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.*
@@ -30,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var luminositySeekBar: SeekBar
     private lateinit var aliveTimeTextView: TextView
 
+    private lateinit var modeRadioGroup: RadioGroup
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         luminositySeekBar = findViewById(R.id.luminosity_seekbar)
         aliveTimeTextView = findViewById(R.id.alive_time_text_view)
 
-        val modeRadioGroup: RadioGroup = findViewById(R.id.mode_radio_group)
+        modeRadioGroup = findViewById(R.id.mode_radio_group)
         modeRadioGroup.setOnCheckedChangeListener { _: RadioGroup, id: Int ->
             val radioButton: View = findViewById(id)
             val idx = modeRadioGroup.indexOfChild(radioButton)
@@ -66,7 +65,36 @@ class MainActivity : AppCompatActivity() {
         inputStream = socket.inputStream
         outputStream = socket.outputStream
 
-        updateGMTTime(inputStream, outputStream)
+        updateGMTTime()
+
+        retrieveParameters();
+    }
+
+    private fun retrieveParameters() {
+        val message = byteArrayOf('p'.toByte())
+
+        outputStream.write(message)
+
+        var available = inputStream.available();
+        while (available != 7) {
+            Log.d("StreetLight", "Waiting parameters response")
+            available = inputStream.available()
+        }
+
+        val response = byteArrayOf(0, 0, 0, 0, 0, 0, 0)
+        inputStream.read(response)
+
+        val mode = response[0].toInt()
+        val timeSlot = TimeSlot(response[1].toInt(), response[2].toInt(),
+                                response[3].toInt(), response[4].toInt())
+        val luminosity = response[5].toInt()
+        val aliveTime = response[6].toInt()
+
+        (modeRadioGroup.getChildAt(mode) as RadioButton).isChecked = true;
+        timeSlotStartTextView.text = "%02d:%02d".format(timeSlot.startHour, timeSlot.startMinute)
+        timeSlotEndTextView.text = "%02d:%02d".format(timeSlot.endHour, timeSlot.endMinute)
+        luminositySeekBar.progress = luminosity
+        aliveTimeTextView.text = aliveTime.toString()
     }
 
     private fun showMessage(message: String) {
@@ -74,8 +102,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateTimeSlot(
-        inputStream: InputStream,
-        outputStream: OutputStream,
         timeSlot: TimeSlot
     ) {
         val message = ubyteArrayOf(
@@ -86,12 +112,12 @@ class MainActivity : AppCompatActivity() {
             timeSlot.endMinute.toUByte()
         ).toByteArray()
 
-        val success = sendCommand(inputStream, outputStream, message)
+        val success = sendCommand(message)
 
         showMessage(if (success) "Time Slot set" else "Error setting time slot")
     }
 
-    private fun updateGMTTime(inputStream: InputStream, outputStream: OutputStream) {
+    private fun updateGMTTime() {
         val calendar = Calendar.getInstance()
 
         val year = calendar.get(Calendar.YEAR)
@@ -116,40 +142,36 @@ class MainActivity : AppCompatActivity() {
             yearL
         ).toByteArray()
 
-        val success = sendCommand(inputStream, outputStream, message)
+        val success = sendCommand(message)
 
-        showMessage(if (success) "GMT Time set" else "Error setting GMT time")
+        if (!success) showMessage("Error setting GMT time")
     }
 
     private fun updateLuminosity(luminosity: Int) {
         val message = ubyteArrayOf('l'.toInt().toUByte(), luminosity.toUByte()).toByteArray()
 
-        val success = sendCommand(inputStream, outputStream, message)
+        val success = sendCommand(message)
 
-        showMessage(if (success) "Luminosity set" else "Error setting luminosity threshold")
+        if (!success) showMessage("Error setting luminosity threshold")
     }
 
     private fun updateAliveTime(aliveTime: Int) {
         val message = ubyteArrayOf('a'.toInt().toUByte(), aliveTime.toUByte()).toByteArray()
 
-        val success = sendCommand(inputStream, outputStream, message)
+        val success = sendCommand(message)
 
-        showMessage(if (success) "Alive time set" else "Error setting alive time")
+        if (!success) showMessage("Error setting luminosity alive time")
     }
 
     private fun updateMode(mode: Int) {
         val message = ubyteArrayOf('m'.toInt().toUByte(), mode.toUByte()).toByteArray()
 
-        val success = sendCommand(inputStream, outputStream, message)
+        val success = sendCommand(message)
 
-        showMessage(if (success) "Mode set" else "Error setting mode")
+        if (!success) showMessage("Error setting mode")
     }
 
-    private fun sendCommand(
-        inputStream: InputStream,
-        outputStream: OutputStream,
-        message: ByteArray
-    ): Boolean {
+    private fun sendCommand(message: ByteArray): Boolean {
         outputStream.write(message)
 
         while (inputStream.available() == 0) {
@@ -174,7 +196,7 @@ class MainActivity : AppCompatActivity() {
             endParts[0].toInt(), endParts[1].toInt()
         )
 
-        updateTimeSlot(inputStream, outputStream, timeslot)
+        updateTimeSlot(timeslot)
     }
 
     fun onLuminosityUpdate(view: android.view.View) {
